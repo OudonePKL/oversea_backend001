@@ -29,12 +29,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
     employee = UserSerializer()
     class Meta:
         model = Employee
-        fields = ["employee", "phone", "address", "restaurant", "role"]
+        fields = ["id", "name", "employee", "phone", "address", "restaurant", "role"]
         
 class EmployeeManageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Employee
-        fields = ["employee", "phone", "address", "restaurant", "role"]
+        fields = ["id", "name", "employee", "phone", "address", "restaurant", "role"]
 
 class TableSerializer(serializers.ModelSerializer):
     restaurant = RestaurantSerializer()
