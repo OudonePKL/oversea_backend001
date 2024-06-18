@@ -58,4 +58,6 @@ urlpatterns = [
     path('<int:restaurant_id>/table/<int:table_id>/update_paid_status/', views.update_latest_order_paid_status, name='update-latest-order-paid-status'),
     path('<int:restaurant_id>/table/<int:table_id>/pending-orders/', views.PendingOrdersByTableView.as_view(), name='pending-orders-by-table'),
     path('order-items/<int:pk>/status/', views.OrderItemStatusUpdateView.as_view(), name='update-order-item-status'),
+    path('<int:restaurant_id>/tables-with-pending-orders/', views.TablesWithPendingOrdersView.as_view(), name='tables-with-pending-orders'),
+    
 ]

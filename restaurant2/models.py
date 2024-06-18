@@ -8,6 +8,7 @@ from django.db import transaction
 
 from django.db import models
 from django.core.validators import RegexValidator
+from django.db.models import Sum, F, DecimalField, Q
 
 class Restaurant(models.Model):
     restaurant = models.ForeignKey(
@@ -126,79 +127,6 @@ class Table(models.Model):
     def is_available(self):
         return not self.orders.filter(status__in=["PENDING", "PREPARING"]).exists()
 
-# class Table(models.Model):
-#     restaurant = models.ForeignKey(
-#         Restaurant,
-#         on_delete=models.CASCADE,
-#         verbose_name="Restaurant",
-#         related_name="tables",
-#     )
-#     number = models.PositiveIntegerField()
-#     qr_code = models.ImageField(upload_to="qr_codes/", blank=True)
-
-#     def save(self, *args, **kwargs):
-#         # Generate the QR code
-#         # qr_url = f"http://localhost/table/{self.number}/order"
-#         # qr_url = f"http://43.201.1.227/home/{self.restaurant.id}/{self.number}"
-        
-#         # Call the parent class's save method first to ensure self.id is available
-#         super().save(*args, **kwargs)
-#         qr_url = f"http://43.201.1.227/home/restaurant/{self.restaurant.id}/table/{self.id}"
-#         qr = qrcode.make(qr_url)
-#         qr_io = BytesIO()
-#         qr.save(qr_io, "PNG")
-#         qr_file = File(qr_io, name=f"{self.number}.png")
-#         self.qr_code.save(f"{self.number}.png", qr_file, save=False)
-
-#     def __str__(self):
-#         return f"Restaurant: {self.restaurant.name} - Table: {self.number}"
-
-#     def is_available(self):
-#         # A table is considered available if there are no pending or preparing orders associated with it
-#         return not self.orders.filter(status__in=["PENDING", "PREPARING"]).exists()
-
-
-# class Table2(models.Model):
-#     restaurant = models.ForeignKey(
-#         Restaurant,
-#         on_delete=models.CASCADE,
-#         verbose_name="Restaurant",
-#         related_name="tables",
-#     )
-#     number = models.PositiveIntegerField()
-#     qr_code = models.ImageField(upload_to="qr_codes/", blank=True)
-
-#     def save(self, *args, **kwargs):
-#         # Check if the instance is being created for the first time
-#         is_new = self.pk is None
-
-#         # Save the instance first to ensure the restaurant ID is available
-#         super().save(*args, **kwargs)
-        
-#         # Generate and save the QR code only if it's a new instance
-#         if is_new or not self.qr_code:
-#             # Generate the QR code URL with restaurant ID and table number
-#             qr_url = f"http://localhost/restaurant/{self.restaurant.id}/table/{self.number}/order"
-            
-#             # Generate the QR code
-#             qr = qrcode.make(qr_url)
-#             qr_io = BytesIO()
-#             qr.save(qr_io, "PNG")
-#             qr_file = File(qr_io, name=f"{self.restaurant.id}_{self.number}.png")
-            
-#             # Save the QR code image file to the qr_code field
-#             self.qr_code.save(f"{self.restaurant.id}_{self.number}.png", qr_file, save=False)
-            
-#             # Save the instance again to store the QR code
-#             super().save(*args, **kwargs)
-
-#     def __str__(self):
-#         return f"Restaurant: {self.restaurant.name} - Table: {self.number}"
-
-#     def is_available(self):
-#         # A table is considered available if there are no pending or preparing orders associated with it
-#         return not self.orders.filter(status__in=["PENDING", "PREPARING"]).exists()
-
 
 class Point(models.Model):
     user = models.ForeignKey(UserModel, on_delete=models.CASCADE, related_name="points")
@@ -252,7 +180,6 @@ class MenuItem(models.Model):
     def __str__(self):
         return f"Restaurant: {self.restaurant.name} - Menu item: {self.name}"
 
-
 class OrderQuerySet(models.QuerySet):
     def unpaid(self):
         return self.filter(paid=False)
@@ -260,10 +187,14 @@ class OrderQuerySet(models.QuerySet):
     def by_status(self, status):
         return self.filter(order_items__status=status).distinct()
 
+    def by_statuses(self, statuses):
+        return self.filter(order_items__status__in=statuses).distinct()
 
 class OrderManager(models.Manager):
     def get_queryset(self):
-        return OrderQuerySet(self.model, using=self._db)
+        return OrderQuerySet(self.model, using=self._db).select_related(
+            'restaurant', 'table', 'user', 'employee'
+        ).prefetch_related('order_items__menu_item')
 
     def unpaid(self):
         return self.get_queryset().unpaid()
@@ -271,6 +202,8 @@ class OrderManager(models.Manager):
     def by_status(self, status):
         return self.get_queryset().by_status(status)
 
+    def by_statuses(self, statuses):
+        return self.get_queryset().by_statuses(statuses)
 
 class Order(models.Model):
     restaurant = models.ForeignKey(
@@ -310,17 +243,17 @@ class Order(models.Model):
         indexes = [
             models.Index(fields=["restaurant"]),
             models.Index(fields=["user", "timestamp"]),
+            models.Index(fields=["paid"]),
         ]
 
     def get_total_cost(self):
-        return sum(
-            item.menu_item.price * item.quantity for item in self.order_items.all()
-        )
+        return self.order_items.filter(~Q(status='CANCELLED')).aggregate(
+            total_cost=Sum(F('menu_item__price') * F('quantity'), output_field=DecimalField())
+        )['total_cost'] or 0
 
     def __str__(self):
         table_number = self.table.number if self.table else "N/A"
         return f"Order {self.id} at Table {table_number}"
-
 
 class OrderItem(models.Model):
     STATUS_CHOICES = [
@@ -352,9 +285,12 @@ class OrderItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        if self.quantity <= 0:
+            raise ValidationError('Quantity must be positive.')
+
     def __str__(self):
         return f"{self.quantity} x {self.menu_item.name} for Order {self.order.id}"
-
 
 class OrderStatusHistory(models.Model):
     order_item = models.ForeignKey(

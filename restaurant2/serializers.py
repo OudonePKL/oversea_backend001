@@ -292,5 +292,19 @@ class OrderItemStatusUpdateSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = ["status"]  # Only the status field will be updated
         
+class TableSerializer2(serializers.ModelSerializer):
+    orders = serializers.SerializerMethodField()
+    pending_order_items_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Table
+        fields = ['id', 'number', 'qr_code', 'orders', "pending_order_items_count"]
+
+    def get_orders(self, obj):
+        orders = obj.orders.filter(order_items__status__in=["PENDING", "PREPARING"]).distinct()
+        return OrderSerializer2(orders, many=True).data
+    
+    def get_pending_order_items_count(self, obj):
+        return OrderItem.objects.filter(order__table=obj, status="PENDING").count()
         
         

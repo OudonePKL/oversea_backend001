@@ -29,7 +29,9 @@ from .serializers import (
     OrderSerializer2,
     OrderItemSerializer2,
     OrderSerializerList2,
-    OrderItemStatusUpdateSerializer
+    OrderItemStatusUpdateSerializer,
+    TableSerializer2
+    
 )
 
 class RestaurantCreateView(generics.ListCreateAPIView):
@@ -664,5 +666,18 @@ class OrderItemStatusUpdateView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    
+
+class TablesWithPendingOrdersView(APIView):
+    # permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, restaurant_id):
+        try:
+            restaurant = Restaurant.objects.get(id=restaurant_id)
+        except Restaurant.DoesNotExist:
+            return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        tables = Table.objects.filter(restaurant=restaurant)
+        
+        serializer = TableSerializer2(tables, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
